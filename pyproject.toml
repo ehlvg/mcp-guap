@@ -1,0 +1,15 @@
+[project]
+name = "mcp-guap"
+version = "0.1.0"
+description = "MCP server for GUAP university personal cabinet (pro.guap.ru)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "httpx>=0.28.1",
+    "lxml>=6.0.2",
+    "mcp>=1.26.0",
+]
+
+[project.scripts]
+mcp-guap = "server:main"
