@@ -8,7 +8,10 @@ from mcp.server.fastmcp import FastMCP
 from mcp import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR, INVALID_PARAMS
 
-from . import guap_client as gc
+try:
+    from . import guap_client as gc
+except ImportError:
+    import guap_client as gc  # type: ignore[no-redef]
 
 mcp = FastMCP("guap", instructions=(
     "This server provides access to the GUAP university personal cabinet at pro.guap.ru. "
@@ -26,11 +29,14 @@ def _get_cookie() -> str:
     if cookie:
         return cookie
 
-    config_path = Path(__file__).parent / "cookie.txt"
-    if config_path.exists():
-        cookie = config_path.read_text().strip()
-        if cookie:
-            return cookie
+    for config_path in (
+        Path(__file__).parent / "cookie.txt",
+        Path(__file__).parent.parent / "cookie.txt",
+    ):
+        if config_path.exists():
+            cookie = config_path.read_text().strip()
+            if cookie:
+                return cookie
 
     raise McpError(ErrorData(
         code=INVALID_PARAMS,
@@ -47,6 +53,93 @@ def _get_cookie() -> str:
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
+
+@mcp.tool(description=(
+    "Get the current student's profile: full name (ФИО), group, student book number, "
+    "institute, specialty, study form, education level, and enrollment status."
+))
+def get_my_profile() -> dict:
+    cookie = _get_cookie()
+    try:
+        p = gc.get_profile(cookie)
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch profile: {e}"))
+
+    return {
+        "full_name": p.full_name,
+        "group": p.group,
+        "student_id": p.student_id,
+        "institute": p.institute,
+        "specialty": p.specialty,
+        "direction": p.direction,
+        "study_form": p.study_form,
+        "education_level": p.education_level,
+        "status": p.status,
+    }
+
+
+@mcp.tool(description=(
+    "Get information about a teacher by their numeric profile ID. "
+    "Returns full name (ФИО), academic degree/rank, and list of positions "
+    "(each with position title, department, and organization). "
+    "Teacher IDs are available in list_tasks, get_task, and list_materials results."
+))
+def get_teacher_info(teacher_id: str) -> dict:
+    cookie = _get_cookie()
+    try:
+        t = gc.get_teacher_profile(cookie, int(teacher_id))
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch teacher {teacher_id}: {e}"))
+
+    return {
+        "teacher_id": t.teacher_id,
+        "full_name": t.full_name,
+        "degree": t.degree,
+        "positions": t.positions,
+    }
+
+
+@mcp.tool(description=(
+    "Get detailed information about a specific subject/discipline by its numeric ID. "
+    "Returns name, department (кафедра), year and semester, control type (экзамен/зачёт/КП etc.), "
+    "current grade, total hours, and the assigned teacher with their position. "
+    "Subject IDs are available in list_tasks, get_task, and list_materials results."
+))
+def get_subject_info(subject_id: str) -> dict:
+    cookie = _get_cookie()
+    try:
+        s = gc.get_subject(cookie, int(subject_id))
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch subject {subject_id}: {e}"))
+
+    return {
+        "subject_id": s.subject_id,
+        "name": s.name,
+        "department": s.department,
+        "year_semester": s.year_semester,
+        "control_type": s.control_type,
+        "grade": s.grade,
+        "hours": s.hours,
+        "teacher": s.teacher,
+        "teacher_id": s.teacher_id,
+        "teacher_position": s.teacher_position,
+        "lesson_types": s.lesson_types,
+        "groups": s.groups,
+    }
+
+
+@mcp.tool(description=(
+    "Get the current student's order number (порядковый номер) in the group list. "
+    "Also returns the total number of students in the group, the student's full name, "
+    "and the group name."
+))
+def get_my_group_order() -> dict:
+    cookie = _get_cookie()
+    try:
+        return gc.get_group_order(cookie)
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch group order: {e}"))
+
 
 @mcp.tool(description=(
     "List all tasks assigned to the student for the current semester. "

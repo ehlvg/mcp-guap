@@ -60,6 +60,43 @@ class Material:
     teacher_id: Optional[int]
 
 
+@dataclass
+class Profile:
+    full_name: str
+    group: str
+    student_id: str
+    institute: Optional[str]
+    specialty: Optional[str]
+    direction: Optional[str]
+    study_form: Optional[str]
+    education_level: Optional[str]
+    status: Optional[str]
+
+
+@dataclass
+class TeacherProfile:
+    teacher_id: int
+    full_name: str
+    degree: Optional[str]
+    positions: list[dict]
+
+
+@dataclass
+class SubjectDetail:
+    subject_id: int
+    name: str
+    department: Optional[str]
+    year_semester: Optional[str]
+    control_type: Optional[str]
+    grade: Optional[str]
+    hours: Optional[str]
+    teacher: Optional[str]
+    teacher_id: Optional[int]
+    teacher_position: Optional[str]
+    lesson_types: Optional[str]
+    groups: Optional[str]
+
+
 def _href_id(href: Optional[str], prefix: str) -> Optional[int]:
     if not href:
         return None
@@ -339,6 +376,206 @@ def get_materials(cookie: str) -> list[Material]:
             page += 1
 
     return all_materials
+
+
+def get_profile(cookie: str) -> Profile:
+    """Fetch the current student's own profile page."""
+    with _make_client(cookie) as client:
+        r = client.get("/inside/profile")
+        r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "lxml")
+
+    name_el = soup.select_one("h3.text-center")
+    full_name = name_el.get_text(strip=True) if name_el else ""
+
+    info: dict[str, str] = {}
+    for h in soup.select("h5"):
+        text = re.sub(r"\s+", " ", h.get_text(" ", strip=True))
+        for key in (
+            "Группа:",
+            "Номер студенческого билета/ зачетной книжки:",
+            "Институт/факультет:",
+            "Специальность:",
+            "Направленность:",
+            "Форма обучения:",
+            "Уровень профессионального образования:",
+            "Статус:",
+        ):
+            if text.startswith(key):
+                val_el = h.select_one("span")
+                val = val_el.get_text(strip=True) if val_el else re.sub(r"\s+", " ", text[len(key):]).strip()
+                info[key] = val
+
+    return Profile(
+        full_name=full_name,
+        group=info.get("Группа:", ""),
+        student_id=info.get("Номер студенческого билета/ зачетной книжки:", ""),
+        institute=info.get("Институт/факультет:"),
+        specialty=info.get("Специальность:"),
+        direction=info.get("Направленность:"),
+        study_form=info.get("Форма обучения:"),
+        education_level=info.get("Уровень профессионального образования:"),
+        status=info.get("Статус:"),
+    )
+
+
+def get_teacher_profile(cookie: str, teacher_id: int) -> TeacherProfile:
+    """Fetch a teacher's profile page."""
+    with _make_client(cookie) as client:
+        r = client.get(f"/inside/profile/{teacher_id}")
+        r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "lxml")
+
+    name_el = soup.select_one("h3.text-center")
+    full_name = name_el.get_text(strip=True) if name_el else ""
+
+    degree_el = soup.select_one("h4.text-center")
+    if degree_el:
+        raw = re.sub(r"\s+", " ", degree_el.get_text(" ", strip=True))
+        degree: Optional[str] = re.sub(r"\s*,\s*", ", ", raw).strip(", ") or None
+    else:
+        degree = None
+
+    positions: list[dict] = []
+    items = soup.select(".list-group-item")
+    pos_idx = next(
+        (i for i, item in enumerate(items) if item.get_text(strip=True) == "Позиции"),
+        None,
+    )
+    if pos_idx is not None:
+        for item in items[pos_idx + 1:]:
+            if "fw-semibold" in (item.get("class") or []):
+                break
+            h5_el = item.select_one("h5")
+            if not h5_el:
+                continue
+            divs = [
+                d.get_text(strip=True)
+                for d in item.find_all("div", recursive=False)
+                if d.get_text(strip=True)
+            ]
+            positions.append({
+                "position": h5_el.get_text(strip=True),
+                "department": divs[0] if divs else None,
+                "organization": divs[1] if len(divs) > 1 else None,
+            })
+
+    return TeacherProfile(
+        teacher_id=teacher_id,
+        full_name=full_name,
+        degree=degree,
+        positions=positions,
+    )
+
+
+def get_subject(cookie: str, subject_id: int) -> SubjectDetail:
+    """Fetch a subject/discipline detail page."""
+    with _make_client(cookie) as client:
+        r = client.get(f"/inside/students/subjects/{subject_id}")
+        r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "lxml")
+
+    name_el = soup.select_one("h3.page__title")
+    name = name_el.get_text(strip=True) if name_el else ""
+
+    info: dict[str, str] = {}
+    for h in soup.select("h5"):
+        text = re.sub(r"\s+", " ", h.get_text(" ", strip=True))
+        for key in (
+            "Кафедра:",
+            "Год / семестр:",
+            "Тип контроля:",
+            "Оценка за аттестацию:",
+            "Количество часов:",
+        ):
+            if text.startswith(key):
+                val_el = h.select_one("span.fw-light")
+                val = (
+                    re.sub(r"\s+", " ", val_el.get_text(" ", strip=True)).strip()
+                    if val_el
+                    else re.sub(r"\s+", " ", text[len(key):]).strip()
+                )
+                info[key] = val
+
+    teacher_name: Optional[str] = None
+    teacher_id_val: Optional[int] = None
+    teacher_position: Optional[str] = None
+    lesson_types: Optional[str] = None
+    groups: Optional[str] = None
+
+    for card in soup.select(".card"):
+        header = card.select_one(".card-header")
+        if not (header and "Преподаватель" in header.get_text()):
+            continue
+        body = card.select_one(".card-body")
+        if not body:
+            continue
+        teacher_h5 = body.select_one("h5")
+        if teacher_h5:
+            teacher_name = teacher_h5.get_text(strip=True)
+        teacher_link = body.select_one("a[href*='/inside/profile/']")
+        if teacher_link:
+            teacher_id_val = _href_id(teacher_link.get("href"), "/inside/profile/")
+        lines = [l.strip() for l in body.get_text("\n").split("\n") if l.strip()]
+        for i, line in enumerate(lines):
+            if line == teacher_name and i + 1 < len(lines):
+                nxt = lines[i + 1]
+                if not nxt.startswith("Типы") and not nxt.startswith("Группы"):
+                    teacher_position = nxt
+            if line.startswith("Типы занятий:"):
+                lesson_types = line[len("Типы занятий:"):].strip()
+            if line.startswith("Группы:"):
+                groups = line[len("Группы:"):].strip()
+        break
+
+    return SubjectDetail(
+        subject_id=subject_id,
+        name=name,
+        department=info.get("Кафедра:"),
+        year_semester=info.get("Год / семестр:"),
+        control_type=info.get("Тип контроля:"),
+        grade=info.get("Оценка за аттестацию:"),
+        hours=info.get("Количество часов:"),
+        teacher=teacher_name,
+        teacher_id=teacher_id_val,
+        teacher_position=teacher_position,
+        lesson_types=lesson_types,
+        groups=groups,
+    )
+
+
+def get_group_order(cookie: str) -> dict:
+    """Return the current student's order number in their group list."""
+    profile = get_profile(cookie)
+
+    with _make_client(cookie) as client:
+        r = client.get("/inside/student/groups")
+        r.raise_for_status()
+
+    soup = BeautifulSoup(r.text, "lxml")
+    table = soup.select_one("table")
+    if not table:
+        return {"order_num": None, "total": 0, "full_name": profile.full_name, "group": profile.group}
+
+    order_num: Optional[str] = None
+    total = 0
+    for row in table.select("tr"):
+        tds = row.select("td")
+        if len(tds) < 4:
+            continue
+        total += 1
+        if tds[3].get_text(strip=True) == profile.student_id or tds[1].get_text(strip=True) == profile.full_name:
+            order_num = tds[0].get_text(strip=True)
+
+    return {
+        "order_num": int(order_num) if order_num and order_num.isdigit() else order_num,
+        "total": total,
+        "full_name": profile.full_name,
+        "group": profile.group,
+    }
 
 
 def submit_report(cookie: str, task_id: int, file_path: str, comment: str = "") -> dict:
