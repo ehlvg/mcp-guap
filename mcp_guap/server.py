@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR, INVALID_PARAMS
 
-import guap_client as gc
+from . import guap_client as gc
 
 mcp = FastMCP("guap", instructions=(
     "This server provides access to the GUAP university personal cabinet at pro.guap.ru. "

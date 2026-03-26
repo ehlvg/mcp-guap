@@ -12,4 +12,4 @@ dependencies = [
 ]
 
 [project.scripts]
-mcp-guap = "server:main"
+mcp-guap = "mcp_guap.server:main"

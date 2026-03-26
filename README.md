@@ -10,6 +10,7 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 | `list_tasks` | Список всех заданий текущего семестра (дедлайны, баллы, статусы) |
 | `get_task` | Детали задания: описание, доп. материалы, сданные отчёты |
 | `list_materials` | Учебные материалы семестра (файлы и внешние ссылки) |
+| `download_material` | Скачать учебный материал (с pro.guap.ru, Google Drive или любой ссылке) |
 | `submit_report` | Загрузить файл отчёта к заданию |
 
 ## Требования
@@ -20,38 +21,21 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 
 ## Установка
 
-**1. Клонировать репозиторий**
+Клонировать репозиторий не нужно — достаточно `uv`.
 
-```bash
-git clone https://github.com/ehlvg/mcp-guap.git
-cd mcp-guap
-```
-
-**2. Установить зависимости**
-
-```bash
-uv sync
-```
-
-**3. Получить куки из браузера**
+**1. Получить куки из браузера**
 
 1. Войдите в [pro.guap.ru](https://pro.guap.ru) в браузере
 2. Откройте DevTools → вкладка **Network**
 3. Обновите страницу, кликните на любой запрос к `pro.guap.ru`
 4. В заголовках запроса найдите **Cookie** и скопируйте всё значение
-5. Вставьте в файл `cookie.txt` в папке проекта:
 
-```bash
-echo "YOUR_COOKIE_STRING_HERE" > cookie.txt
-```
-
-> Куки живут несколько часов. Когда перестанет работать — повторите шаг 3–5.
-
-**4. Добавить сервер в Claude Desktop**
+**2. Добавить сервер в Claude Desktop**
 
 Откройте файл конфигурации Claude Desktop:
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 Добавьте секцию `mcpServers` (или дополните существующую):
 
@@ -59,26 +43,23 @@ echo "YOUR_COOKIE_STRING_HERE" > cookie.txt
 {
   "mcpServers": {
     "guap": {
-      "command": "/АБСОЛЮТНЫЙ/ПУТЬ/К/mcp-guap/.venv/bin/python3",
-      "args": ["/АБСОЛЮТНЫЙ/ПУТЬ/К/mcp-guap/server.py"]
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ehlvg/mcp-guap", "mcp-guap"],
+      "env": {
+        "GUAP_COOKIE": "YOUR_COOKIE_STRING_HERE"
+      }
     }
   }
 }
 ```
 
-Узнать нужные пути можно командами:
+Замените `YOUR_COOKIE_STRING_HERE` на скопированное значение Cookie.
 
-```bash
-# Python в виртуальном окружении
-cd mcp-guap && uv run which python3
+**3. Перезапустить Claude Desktop**
 
-# Абсолютный путь к папке проекта
-pwd
-```
+После перезапуска в Claude появятся инструменты `list_tasks`, `get_task`, `list_materials`, `download_material`, `submit_report`.
 
-**5. Перезапустить Claude Desktop**
-
-После перезапуска в Claude появятся инструменты `list_tasks`, `get_task`, `list_materials`, `submit_report`.
+> Куки живут несколько часов. Когда перестанет работать — обновите `GUAP_COOKIE` в конфиге и перезапустите Claude Desktop.
 
 ## Использование
 
@@ -88,30 +69,19 @@ pwd
 > «Что нужно сдать по вычислительной математике?»
 > «Загрузи файл ~/Documents/report.pdf как отчёт к заданию 181395»
 
-## Альтернативная аутентификация через переменную окружения
+## Запуск вручную (для отладки)
 
-Вместо `cookie.txt` можно передать куки через `env` в конфиге:
-
-```json
-{
-  "mcpServers": {
-    "guap": {
-      "command": "...",
-      "args": ["..."],
-      "env": {
-        "GUAP_COOKIE": "YOUR_COOKIE_STRING_HERE"
-      }
-    }
-  }
-}
+```bash
+GUAP_COOKIE="..." uvx --from git+https://github.com/ehlvg/mcp-guap mcp-guap
 ```
 
 ## Структура проекта
 
 ```
 mcp-guap/
-├── server.py        # MCP-сервер, определение инструментов
-├── guap_client.py   # HTTP-клиент и парсеры HTML
-├── pyproject.toml   # Зависимости проекта
-└── cookie.txt       # Ваши куки (не коммитится, создайте сами)
+├── mcp_guap/
+│   ├── server.py        # MCP-сервер, определение инструментов
+│   └── guap_client.py   # HTTP-клиент и парсеры HTML
+├── pyproject.toml       # Зависимости проекта
+└── cookie.txt           # Ваши куки (не коммитится, опционально)
 ```
