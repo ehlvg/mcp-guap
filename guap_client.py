@@ -396,6 +396,203 @@ def submit_report(cookie: str, task_id: int, file_path: str, comment: str = "") 
     }
 
 
+DOWNLOAD_DIR = Path.home() / "Downloads" / "guap-materials"
+
+
+def download_material(cookie: str, url: str, save_dir: Optional[str] = None) -> dict:
+    """Download a material file from pro.guap.ru or an external URL.
+
+    Returns a dict with keys: path, filename, size, content_type, source.
+    """
+    out_dir = Path(save_dir) if save_dir else DOWNLOAD_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Normalise URL
+    if url.startswith("/"):
+        url = BASE_URL + url
+
+    source = _classify_url(url)
+
+    if source == "guap":
+        result = _download_guap(cookie, url, out_dir)
+    elif source == "gdrive":
+        result = _download_gdrive(url, out_dir)
+    else:
+        result = _download_direct(url, out_dir)
+
+    return result
+
+
+def _classify_url(url: str) -> str:
+    if "pro.guap.ru" in url or url.startswith("/"):
+        return "guap"
+    if "drive.google.com" in url or "docs.google.com" in url:
+        return "gdrive"
+    return "direct"
+
+
+def _safe_filename(name: str) -> str:
+    """Sanitise a filename, keeping Cyrillic and Latin characters."""
+    name = re.sub(r'[\\/*?:"<>|]', "_", name).strip(". ")
+    return name[:200] or "file"
+
+
+def _filename_from_response(r: httpx.Response, fallback: str = "file") -> str:
+    cd = r.headers.get("content-disposition", "")
+    # Try filename*=UTF-8''... first (RFC 5987)
+    m = re.search(r"filename\*\s*=\s*UTF-8''([^\s;]+)", cd, re.IGNORECASE)
+    if m:
+        from urllib.parse import unquote
+        return _safe_filename(unquote(m.group(1)))
+    # Then regular filename=
+    m = re.search(r'filename\s*=\s*["\']?([^"\';\r\n]+)', cd, re.IGNORECASE)
+    if m:
+        name = m.group(1).strip().strip('"\'')
+        try:
+            name = name.encode("latin-1").decode("utf-8")
+        except Exception:
+            pass
+        return _safe_filename(name)
+    # Guess from URL path
+    from urllib.parse import urlparse, unquote
+    path_part = urlparse(r.url.path if hasattr(r.url, "path") else str(r.url)).path
+    name = unquote(path_part.rstrip("/").split("/")[-1])
+    if "." in name:
+        return _safe_filename(name)
+    # Fallback: use supplied name + extension from content-type
+    ct = r.headers.get("content-type", "")
+    ext_map = {
+        "application/pdf": ".pdf",
+        "application/msword": ".doc",
+        "application/vnd.openxmlformats": ".docx",
+        "application/zip": ".zip",
+        "text/plain": ".txt",
+    }
+    ext = ""
+    for mime, e in ext_map.items():
+        if ct.startswith(mime):
+            ext = e
+            break
+    return _safe_filename(fallback) + ext
+
+
+def _write_file(out_dir: Path, filename: str, content: bytes) -> Path:
+    target = out_dir / filename
+    # Avoid overwriting existing files
+    if target.exists():
+        stem, suffix = target.stem, target.suffix
+        i = 1
+        while target.exists():
+            target = out_dir / f"{stem}_{i}{suffix}"
+            i += 1
+    target.write_bytes(content)
+    return target
+
+
+def _download_guap(cookie: str, url: str, out_dir: Path) -> dict:
+    with _make_client(cookie) as client:
+        r = client.get(url)
+        r.raise_for_status()
+    filename = _filename_from_response(r, fallback="guap_material")
+    path = _write_file(out_dir, filename, r.content)
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "size": len(r.content),
+        "content_type": r.headers.get("content-type", ""),
+        "source": "pro.guap.ru",
+    }
+
+
+def _download_gdrive(url: str, out_dir: Path) -> dict:
+    """Download a Google Drive file, handling the virus-scan confirmation page."""
+    file_id = _gdrive_file_id(url)
+    if not file_id:
+        raise ValueError(f"Could not extract Google Drive file ID from: {url}")
+
+    download_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
+
+    with httpx.Client(
+        follow_redirects=True,
+        timeout=60,
+        headers={"User-Agent": "Mozilla/5.0"},
+    ) as client:
+        r = client.get(download_url)
+        r.raise_for_status()
+
+        content_type = r.headers.get("content-type", "")
+
+        # If we still got HTML, try the older /uc endpoint with confirmation
+        if "text/html" in content_type:
+            soup = BeautifulSoup(r.text, "lxml")
+            # Look for the download form or confirm link
+            confirm_url = None
+            for a in soup.select("a"):
+                href = a.get("href", "")
+                if "confirm" in href and ("uc?" in href or "usercontent" in href):
+                    confirm_url = href if href.startswith("http") else "https://drive.google.com" + href
+                    break
+            if not confirm_url:
+                # Try /uc fallback
+                confirm_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+            r = client.get(confirm_url)
+            r.raise_for_status()
+            content_type = r.headers.get("content-type", "")
+
+        if "text/html" in content_type:
+            raise RuntimeError(
+                f"Google Drive returned HTML instead of a file for ID {file_id}. "
+                "The file may be restricted or require sign-in."
+            )
+
+    filename = _filename_from_response(r, fallback=f"gdrive_{file_id}")
+    path = _write_file(out_dir, filename, r.content)
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "size": len(r.content),
+        "content_type": content_type,
+        "source": "Google Drive",
+    }
+
+
+def _gdrive_file_id(url: str) -> Optional[str]:
+    m = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", url)
+    return m.group(1) if m else None
+
+
+def _download_direct(url: str, out_dir: Path) -> dict:
+    """Download any direct URL (PDF, etc.)."""
+    with httpx.Client(
+        follow_redirects=True,
+        timeout=60,
+        headers={"User-Agent": "Mozilla/5.0"},
+    ) as client:
+        r = client.get(url)
+        r.raise_for_status()
+
+    content_type = r.headers.get("content-type", "")
+    if "text/html" in content_type:
+        raise RuntimeError(
+            f"URL returned HTML instead of a file. "
+            "This may be a web page, not a direct download link."
+        )
+
+    from urllib.parse import urlparse, unquote
+    filename = _filename_from_response(r, fallback=unquote(urlparse(url).path.split("/")[-1]) or "file")
+    path = _write_file(out_dir, filename, r.content)
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "size": len(r.content),
+        "content_type": content_type,
+        "source": url,
+    }
+
+
 def _guess_mime(path: Path) -> str:
     ext = path.suffix.lower()
     types = {

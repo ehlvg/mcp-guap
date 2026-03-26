@@ -131,6 +131,26 @@ def list_materials() -> list[dict]:
 
 
 @mcp.tool(description=(
+    "Download a material file by URL. Works for three kinds of URLs: "
+    "(1) pro.guap.ru internal links — authenticated automatically via the session cookie; "
+    "(2) Google Drive share links (drive.google.com/file/d/...) — handles the confirmation page; "
+    "(3) any other direct download URL (PDF, ZIP, etc.). "
+    "The file is saved to ~/Downloads/guap-materials/ by default. "
+    "Returns the local file path, filename, size in bytes, and content type."
+))
+def download_material(url: str, save_dir: Optional[str] = None) -> dict:
+    cookie = _get_cookie()
+    try:
+        return gc.download_material(cookie, url, save_dir)
+    except FileNotFoundError as e:
+        raise McpError(ErrorData(code=INVALID_PARAMS, message=str(e)))
+    except RuntimeError as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=str(e)))
+    except Exception as e:
+        raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Download failed: {e}"))
+
+
+@mcp.tool(description=(
     "Submit a report file for a specific task. "
     "The file must already exist on the local filesystem. "
     "Allowed extensions depend on the task — check get_task first. "
