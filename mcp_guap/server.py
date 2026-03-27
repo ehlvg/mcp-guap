@@ -142,13 +142,28 @@ def get_my_group_order() -> dict:
 
 
 @mcp.tool(description=(
-    "List all tasks assigned to the student for the current semester. "
-    "Returns task id, discipline, name, status, points (earned/max), type, deadline, and teacher."
+    "List tasks assigned to the student. "
+    "Returns task id, discipline, name, status, points (earned/max), type, deadline, and teacher. "
+    "All filters are optional and default to showing everything for the current semester. "
+    "semester: numeric semester ID (e.g. 27 = '2025/2026 весенний'). "
+    "subject_id: numeric discipline ID to show tasks for one subject only. "
+    "task_type: 0=все, 1=Курсовой проект, 2=Лабораторная работа, 3=Реферат, 4=Контрольная работа, "
+    "5=Расчетно-графическая работа, 6=Расчетное задание, 7=Эссе, 8=Отчет о практике, "
+    "9=Проверочная работа, 10=Индив. задание по ин. яз., 11=Текущее тестирование, "
+    "12=Научный доклад, 13=Отчет о науч. исслед., 14=Индивидуальное задание, "
+    "15=Практические задания, 16=Работа на занятии. "
+    "show_status: 0=все, 1=только без отчета, 2=ожидающие проверки, 3=только принятые, "
+    "4=только непринятые, 5=все кроме принятых."
 ))
-def list_tasks() -> list[dict]:
+def list_tasks(
+    semester: Optional[int] = None,
+    subject_id: Optional[int] = None,
+    task_type: Optional[int] = None,
+    show_status: Optional[int] = None,
+) -> list[dict]:
     cookie = _get_cookie()
     try:
-        tasks = gc.get_tasks(cookie)
+        tasks = gc.get_tasks(cookie, semester=semester, subject=subject_id, task_type=task_type, show_status=show_status)
     except Exception as e:
         raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch tasks: {e}"))
 
@@ -199,14 +214,20 @@ def get_task(task_id: str) -> dict:
 
 
 @mcp.tool(description=(
-    "List all learning materials available to the student for the current semester. "
+    "List learning materials available to the student. "
     "Each material has a name, discipline, date added, teacher, and either a download URL "
-    "(for files hosted on pro.guap.ru) or an external URL (Google Drive, etc.)."
+    "(for files hosted on pro.guap.ru) or an external URL (Google Drive, etc.). "
+    "All filters are optional and default to the current semester. "
+    "semester: numeric semester ID (e.g. 27 = '2025/2026 весенний'). "
+    "subject_id: numeric discipline ID to show materials for one subject only."
 ))
-def list_materials() -> list[dict]:
+def list_materials(
+    semester: Optional[int] = None,
+    subject_id: Optional[int] = None,
+) -> list[dict]:
     cookie = _get_cookie()
     try:
-        materials = gc.get_materials(cookie)
+        materials = gc.get_materials(cookie, semester=semester, subject=subject_id)
     except Exception as e:
         raise McpError(ErrorData(code=INTERNAL_ERROR, message=f"Failed to fetch materials: {e}"))
 

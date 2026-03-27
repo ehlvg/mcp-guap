@@ -116,11 +116,23 @@ def _make_client(cookie: str) -> httpx.Client:
     )
 
 
-def get_tasks(cookie: str, semester: Optional[int] = None) -> list[Task]:
-    """Fetch all tasks for the given (or default current) semester."""
+def get_tasks(
+    cookie: str,
+    semester: Optional[int] = None,
+    subject: Optional[int] = None,
+    task_type: Optional[int] = None,
+    show_status: Optional[int] = None,
+) -> list[Task]:
+    """Fetch all tasks for the given (or default current) semester with optional filters."""
     params: dict = {}
     if semester is not None:
         params["semester"] = semester
+    if subject is not None:
+        params["subject"] = subject
+    if task_type is not None:
+        params["type"] = task_type
+    if show_status is not None:
+        params["showStatus"] = show_status
 
     with _make_client(cookie) as client:
         r = client.get("/inside/student/tasks/", params=params)
@@ -305,14 +317,24 @@ def get_task(cookie: str, task_id: int) -> TaskDetail:
     )
 
 
-def get_materials(cookie: str) -> list[Material]:
-    """Fetch all learning materials for the current semester."""
+def get_materials(
+    cookie: str,
+    semester: Optional[int] = None,
+    subject: Optional[int] = None,
+) -> list[Material]:
+    """Fetch all learning materials with optional filters."""
     all_materials: list[Material] = []
     page = 1
 
+    base_params: dict = {}
+    if semester is not None:
+        base_params["semester"] = semester
+    if subject is not None:
+        base_params["subject"] = subject
+
     with _make_client(cookie) as client:
         while True:
-            r = client.get("/inside/student/materials", params={"page": page})
+            r = client.get("/inside/student/materials", params={**base_params, "page": page})
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "lxml")
             table = soup.select_one("table")
