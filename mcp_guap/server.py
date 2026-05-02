@@ -1,5 +1,6 @@
 """MCP server for GUAP personal cabinet (pro.guap.ru)"""
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Optional
@@ -10,8 +11,10 @@ from mcp.types import ErrorData, INTERNAL_ERROR, INVALID_PARAMS
 
 try:
     from . import guap_client as gc
+    from . import auth as guap_auth
 except ImportError:
     import guap_client as gc  # type: ignore[no-redef]
+    import auth as guap_auth  # type: ignore[no-redef]
 
 mcp = FastMCP("guap", instructions=(
     "This server provides access to the GUAP university personal cabinet at pro.guap.ru. "
@@ -24,11 +27,21 @@ mcp = FastMCP("guap", instructions=(
 # ---------------------------------------------------------------------------
 
 def _get_cookie() -> str:
-    """Return the session cookie string from env or config file."""
+    """Return the session cookie string from env, config file, or auth module."""
+    # 1. Environment variable
     cookie = os.environ.get("GUAP_COOKIE", "").strip()
     if cookie:
         return cookie
-
+    
+    # 2. Auth module (cookie.json from browser auth)
+    try:
+        cookie = guap_auth.get_saved_cookie()
+        if cookie:
+            return cookie
+    except Exception:
+        pass
+    
+    # 3. Legacy cookie.txt file
     for config_path in (
         Path(__file__).parent / "cookie.txt",
         Path(__file__).parent.parent / "cookie.txt",
@@ -42,10 +55,9 @@ def _get_cookie() -> str:
         code=INVALID_PARAMS,
         message=(
             "GUAP session cookie not configured. "
-            "Set the GUAP_COOKIE environment variable or create a cookie.txt file "
-            "in the server directory with the full Cookie header value from your browser. "
-            "To get it: open DevTools → Network → any request to pro.guap.ru → "
-            "copy the 'Cookie' request header value."
+            "Use the 'authenticate' tool to log in via browser, or "
+            "set the GUAP_COOKIE environment variable, or create a cookie.txt file "
+            "in the server directory with the full Cookie header value from your browser."
         ),
     ))
 
@@ -294,6 +306,57 @@ def submit_report(
         "message": "Report submitted successfully.",
         "messages": result["messages"],
     }
+
+
+@mcp.tool(description=(
+    "Authenticate with GUAP via browser automation. "
+    "Opens a browser window, navigates to pro.guap.ru login page, "
+    "waits for you to enter credentials, and saves session cookies. "
+    "The cookies are saved to a file and will be used automatically for subsequent requests. "
+    "Timeout is 120 seconds by default."
+))
+def authenticate(timeout: Optional[int] = 120) -> dict:
+    """Authenticate via browser and save cookies."""
+    try:
+        result = asyncio.run(guap_auth.authenticate_with_browser(timeout=timeout))
+        
+        if result.get("success"):
+            return {
+                "success": True,
+                "message": "Authentication successful. Cookies saved and will be used automatically.",
+                "cookies_count": len(result.get("cookies", [])),
+                "save_path": result.get("save_path"),
+            }
+        else:
+            raise McpError(ErrorData(
+                code=INVALID_PARAMS,
+                message=f"Authentication failed: {result.get('error', 'Unknown error')}"
+            ))
+    except Exception as e:
+        raise McpError(ErrorData(
+            code=INTERNAL_ERROR,
+            message=f"Authentication error: {e}"
+        ))
+
+
+@mcp.tool(description=(
+    "Check if current authentication cookies are valid. "
+    "Returns whether cookies are valid and can access the GUAP profile."
+))
+def check_auth_status() -> dict:
+    """Check if saved cookies are valid."""
+    try:
+        result = asyncio.run(guap_auth.check_auth())
+        return {
+            "valid": result.get("valid", False),
+            "message": "Authentication valid" if result.get("valid") else f"Invalid: {result.get('error', 'Unknown error')}",
+            "details": result,
+        }
+    except Exception as e:
+        return {
+            "valid": False,
+            "message": f"Error checking auth: {e}",
+        }
 
 
 def main():

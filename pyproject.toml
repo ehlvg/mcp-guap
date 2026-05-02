@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "mcp-guap"
 version = "0.1.0"
-description = "MCP server for GUAP university personal cabinet (pro.guap.ru)"
+description = "MCP server and CLI for GUAP university personal cabinet (pro.guap.ru)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -9,7 +13,16 @@ dependencies = [
     "httpx>=0.28.1",
     "lxml>=6.0.2",
     "mcp>=1.26.0",
+    "playwright>=1.40.0",
 ]
 
 [project.scripts]
 mcp-guap = "mcp_guap.server:main"
+guap = "mcp_guap.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mcp_guap*"]
+
+[tool.setuptools.package-data]
+mcp_guap = ["skill/**/*", "skill/**/**/*"]

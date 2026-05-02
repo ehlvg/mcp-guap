@@ -5,13 +5,33 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 
 ## Что умеет
 
+### MCP Mode (для ИИ-ассистентов)
+
 | Инструмент | Описание |
 |---|---|
+| `authenticate` | 🔐 Авторизация через браузер (открывает окно, ждёт входа, сохраняет cookies) |
+| `check_auth_status` | Проверить, валидны ли сохранённые cookies |
 | `list_tasks` | Список всех заданий текущего семестра (дедлайны, баллы, статусы) |
 | `get_task` | Детали задания: описание, доп. материалы, сданные отчёты |
 | `list_materials` | Учебные материалы семестра (файлы и внешние ссылки) |
 | `download_material` | Скачать учебный материал (с pro.guap.ru, Google Drive или любой ссылке) |
 | `submit_report` | Загрузить файл отчёта к заданию |
+| `get_my_profile` | Профиль студента: ФИО, группа, номер зачётки |
+| `get_teacher_info` | Информация о преподавателе |
+| `get_subject_info` | Информация о дисциплине |
+| `get_my_group_order` | Порядковый номер в группе |
+
+### CLI Mode (автономный терминал)
+
+| Команда | Описание |
+|---|---|
+| `guap pro auth` | 🔐 Авторизация через браузер |
+| `guap pro check` | Проверить авторизацию |
+| `guap pro tasks` | Список заданий с фильтрами |
+| `guap pro task <id>` | Детали задания |
+| `guap pro materials` | Учебные материалы |
+| `guap pro profile` | Профиль студента |
+| `guap skill` | Установить Agent Skill в `agents/skills/` |
 
 ## Требования
 
@@ -23,12 +43,16 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 
 Клонировать репозиторий не нужно — достаточно `uv`.
 
-**1. Получить куки из браузера**
+### Вариант 1: Автоматическая авторизация (рекомендуется)
 
-1. Войдите в [pro.guap.ru](https://pro.guap.ru) в браузере
-2. Откройте DevTools → вкладка **Network**
-3. Обновите страницу, кликните на любой запрос к `pro.guap.ru`
-4. В заголовках запроса найдите **Cookie** и скопируйте всё значение
+**1. Установить Playwright browsers**
+
+При первом запуске автоматической авторизации, Claude установит необходимые браузеры автоматически. Это может занять 1-2 минуты.
+
+Или установите вручную:
+```bash
+uvx playwright install chromium
+```
 
 **2. Добавить сервер в Claude Desktop**
 
@@ -37,7 +61,37 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-Добавьте секцию `mcpServers` (или дополните существующую):
+Добавьте секцию `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "guap": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ehlvg/mcp-guap", "mcp-guap"]
+    }
+  }
+}
+```
+
+**2. Перезапустить Claude Desktop**
+
+**3. Выполнить авторизацию**
+
+Просто скажите Claude:
+> "Выполни авторизацию в ГУАП"
+
+Claude откроет браузер, вам нужно будет ввести логин и пароль. Cookies сохранятся автоматически.
+
+### Вариант 2: Ручная настройка (без браузера)
+
+Если не хотите использовать автоматическую авторизацию:
+
+1. Войдите в [pro.guap.ru](https://pro.guap.ru) в браузере
+2. Откройте DevTools → вкладка **Network**
+3. Обновите страницу, кликните на любой запрос к `pro.guap.ru`
+4. В заголовках запроса найдите **Cookie** и скопируйте всё значение
+5. Добавьте в конфигурацию Claude Desktop:
 
 ```json
 {
@@ -53,15 +107,54 @@ MCP-сервер для личного кабинета ГУАП ([pro.guap.ru](
 }
 ```
 
-Замените `YOUR_COOKIE_STRING_HERE` на скопированное значение Cookie.
+> Куки живут несколько часов. Когда перестанет работать — выполните `authenticate` снова или обновите `GUAP_COOKIE`.
 
-**3. Перезапустить Claude Desktop**
+### Вариант 3: Agent Skill (для AI-агентов с поддержкой Agent Skills)
 
-После перезапуска в Claude появятся инструменты `list_tasks`, `get_task`, `list_materials`, `download_material`, `submit_report`.
+Если ваш AI-агент поддерживает [Agent Skills](https://agentskills.io/):
 
-> Куки живут несколько часов. Когда перестанет работать — обновите `GUAP_COOKIE` в конфиге и перезапустите Claude Desktop.
+```bash
+# Установить skill в agents/skills/
+uvx --from git+https://github.com/ehlvg/mcp-guap guap skill
+
+# Или в кастомную директорию
+uvx --from git+https://github.com/ehlvg/mcp-guap guap skill --path ./my-agents/skills
+```
+
+Skill будет автоматически обнаружен агентом. Просто спросите:
+> "Помоги мне с заданиями в ГУАП"
+
+### Вариант 4: CLI режим (терминал)
+
+Если предпочитаете работать в терминале:
+
+```bash
+# Использование
+uvx --from git+https://github.com/ehlvg/mcp-guap guap pro auth
+guap pro tasks
+guap pro task 181395
+guap pro materials
+guap pro profile
+```
+
+#### Форматы вывода
+
+Поддерживаются форматы `table` (по умолчанию), `json` и `csv`:
+
+```bash
+# JSON формат
+guap pro tasks --format json
+guap pro profile --format json
+guap pro task 181395 --format json
+
+# CSV формат
+guap pro tasks --format csv > tasks.csv
+guap pro materials --format csv > materials.csv
+```
 
 ## Использование
+
+### MCP режим
 
 Просто общайтесь с Claude на естественном языке:
 
@@ -80,8 +173,14 @@ GUAP_COOKIE="..." uvx --from git+https://github.com/ehlvg/mcp-guap mcp-guap
 ```
 mcp-guap/
 ├── mcp_guap/
-│   ├── server.py        # MCP-сервер, определение инструментов
-│   └── guap_client.py   # HTTP-клиент и парсеры HTML
+│   ├── server.py        # MCP-сервер
+│   ├── cli.py           # CLI инструмент (guap)
+│   ├── auth.py          # Авторизация через браузер
+│   ├── guap_client.py   # HTTP-клиент
+│   └── skill/           # Agent Skill (agentskills.io)
+│       ├── SKILL.md     # Skill metadata + instructions
+│       ├── scripts/     # Helper scripts
+│       └── references/  # Documentation
 ├── pyproject.toml       # Зависимости проекта
-└── cookie.txt           # Ваши куки (не коммитится, опционально)
+└── cookie.json          # Cookies (автосоздается)
 ```
