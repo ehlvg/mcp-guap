@@ -315,11 +315,11 @@ def submit_report(
     "The cookies are saved to a file and will be used automatically for subsequent requests. "
     "Timeout is 120 seconds by default."
 ))
-def authenticate(timeout: Optional[int] = 120) -> dict:
+async def authenticate(timeout: Optional[int] = 120) -> dict:
     """Authenticate via browser and save cookies."""
     try:
-        result = asyncio.run(guap_auth.authenticate_with_browser(timeout=timeout))
-        
+        result = await guap_auth.authenticate_with_browser(timeout=timeout)
+
         if result.get("success"):
             return {
                 "success": True,
@@ -343,10 +343,10 @@ def authenticate(timeout: Optional[int] = 120) -> dict:
     "Check if current authentication cookies are valid. "
     "Returns whether cookies are valid and can access the GUAP profile."
 ))
-def check_auth_status() -> dict:
+async def check_auth_status() -> dict:
     """Check if saved cookies are valid."""
     try:
-        result = asyncio.run(guap_auth.check_auth())
+        result = await guap_auth.check_auth()
         return {
             "valid": result.get("valid", False),
             "message": "Authentication valid" if result.get("valid") else f"Invalid: {result.get('error', 'Unknown error')}",
